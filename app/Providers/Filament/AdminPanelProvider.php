@@ -55,9 +55,6 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
-            ->widgets([
-                // SeleccionMedidores::class,
-            ])
 
             ->authMiddleware([
                 Authenticate::class,

@@ -7,6 +7,9 @@ use Filament\Widgets\ChartWidget;
 
 class MedidorEacTotalChart extends ChartWidget
 {
+    /** 🔒 OCULTO EN DASHBOARD */
+    protected static bool $isDiscovered = false;
+
     protected ?string $heading = 'EAC Total del Medidor';
 
     protected int | string | array $columnSpan = 'full';
