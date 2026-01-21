@@ -6,14 +6,23 @@ use App\Filament\Pages\AnalisisMedidor;
 use App\Models\Departamento;
 use App\Models\Almacen;
 use App\Models\Medidor;
+use Filament\Actions\Action;
+// 1. Agregar estos imports de Actions
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
+
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Widgets\Widget;
 
-class SeleccionMedidores extends Widget implements HasForms
+// 2. Implementar HasActions y HasForms (separados por coma)
+class SeleccionMedidores extends Widget implements HasForms, HasActions
 {
     use InteractsWithForms;
+    use InteractsWithActions; // 3. Usar el trait InteractsWithActions
 
     protected string $view = 'filament.widgets.seleccion-medidores';
 
@@ -25,9 +34,9 @@ class SeleccionMedidores extends Widget implements HasForms
 
     protected function getFormSchema(): array
     {
+        // ... (El resto de tu código se mantiene igual)
         return [
-
-            Select::make('departamento_id')
+             Select::make('departamento_id')
                 ->label('Departamento')
                 ->options(
                     Departamento::where('estado_departamento', 1)
@@ -42,7 +51,7 @@ class SeleccionMedidores extends Widget implements HasForms
 
             Select::make('almacen_id')
                 ->label('Almacén')
-                ->options(fn (callable $get) =>
+                ->options(fn (Get $get) =>
                     $get('departamento_id')
                         ? Almacen::where('id_departamento', $get('departamento_id'))
                             ->where('estado_almacen', 1)
@@ -54,11 +63,11 @@ class SeleccionMedidores extends Widget implements HasForms
                     $set('medidor_id', null)
                 )
                 ->required()
-                ->disabled(fn (callable $get) => ! $get('departamento_id')),
+                ->disabled(fn (Get $get) => ! $get('departamento_id')),
 
             Select::make('medidor_id')
                 ->label('Medidor')
-                ->options(fn (callable $get) =>
+                ->options(fn (Get $get) =>
                     $get('almacen_id')
                         ? Medidor::where('id_almacen', $get('almacen_id'))
                             ->where('estado_medidor', 1)
@@ -66,17 +75,26 @@ class SeleccionMedidores extends Widget implements HasForms
                         : []
                 )
                 ->reactive()
-                ->afterStateUpdated(fn (?int $state) => $state
-                    ? redirect()->to(
-                        AnalisisMedidor::getUrl([
-                            'medidor' => $state,
-                        ])
-                    )
-                    : null
-                )
-
                 ->required()
-                ->disabled(fn (callable $get) => ! $get('almacen_id')),
+                ->disabled(fn (Get $get) => ! $get('almacen_id')),
+
+            Actions::make([
+                Action::make('generar')
+                    ->label('Generar Gráfica')
+                    ->icon('heroicon-m-chart-bar')
+                    ->button()
+                    ->action(function (Get $get) {
+                        $medidorId = $get('medidor_id');
+                        if ($medidorId) {
+                            return redirect()->to(
+                                AnalisisMedidor::getUrl([
+                                    'medidor' => $medidorId,
+                                ])
+                            );
+                        }
+                    })
+                    ->disabled(fn (Get $get) => ! $get('medidor_id')),
+            ])->fullWidth(),
         ];
     }
 }
