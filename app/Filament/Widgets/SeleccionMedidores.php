@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\AnalisisMedidor;
 use App\Models\Departamento;
 use App\Models\Almacen;
 use App\Models\Medidor;
@@ -9,13 +10,11 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Components\Select;
 use Filament\Widgets\Widget;
-use Livewire\Attributes\On;
 
 class SeleccionMedidores extends Widget implements HasForms
 {
     use InteractsWithForms;
 
-    // ✅ ASÍ ES EN FILAMENT v4
     protected string $view = 'filament.widgets.seleccion-medidores';
 
     protected int | string | array $columnSpan = 'full';
@@ -67,12 +66,17 @@ class SeleccionMedidores extends Widget implements HasForms
                         : []
                 )
                 ->reactive()
-                ->afterStateUpdated(function ($state) {
-                    $this->dispatch('medidor-seleccionado', medidorId: $state);
-                })
+                ->afterStateUpdated(fn (?int $state) => $state
+                    ? redirect()->to(
+                        AnalisisMedidor::getUrl([
+                            'medidor' => $state,
+                        ])
+                    )
+                    : null
+                )
+
                 ->required()
                 ->disabled(fn (callable $get) => ! $get('almacen_id')),
-
         ];
     }
 }

@@ -4,7 +4,6 @@ namespace App\Filament\Widgets;
 
 use App\Models\Medidor;
 use Filament\Widgets\ChartWidget;
-use Livewire\Attributes\On;
 
 class MedidorEacTotalChart extends ChartWidget
 {
@@ -14,24 +13,8 @@ class MedidorEacTotalChart extends ChartWidget
 
     public ?int $medidorId = null;
 
-    #[On('medidor-seleccionado')]
-    public function setMedidor(int $medidorId): void
-    {
-        $this->medidorId = $medidorId;
-
-        // ✅ Forma correcta en Livewire v3 / Filament v4
-        $this->dispatch('$refresh');
-    }
-
     protected function getData(): array
     {
-        if (! $this->medidorId) {
-            return [
-                'labels' => [],
-                'datasets' => [],
-            ];
-        }
-
         $medidor = Medidor::find($this->medidorId);
 
         if (! $medidor) {
