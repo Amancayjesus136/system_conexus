@@ -16,7 +16,6 @@ class MedidorStats extends BaseWidget
         return '5s';
     }
 
-    // Ahora dinámico
     protected function getColumns(): int
     {
         return min(max(count($this->campos), 1), 5);

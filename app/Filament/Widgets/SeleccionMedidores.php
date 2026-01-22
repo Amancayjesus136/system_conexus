@@ -36,7 +36,6 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
         return [
             Grid::make(12)
                 ->schema([
-                    // 1. Select Departamento
                     Select::make('departamento_id')
                         ->label('Departamento')
                         ->options(Departamento::where('estado_departamento', 1)->pluck('nombre_departamento', 'id_departamento'))
@@ -49,7 +48,6 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                         ->required()
                         ->columnSpan(4),
 
-                    // 2. Select Almacén
                     Select::make('almacen_id')
                         ->label('Almacén')
                         ->options(fn (Get $get) => $get('departamento_id')
@@ -62,7 +60,6 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                         ->disabled(fn (Get $get) => ! $get('departamento_id'))
                         ->columnSpan(4),
 
-                    // 3. Select Medidor
                     Select::make('medidor_id')
                         ->label('Medidor')
                         ->options(fn (Get $get) => $get('almacen_id')
@@ -78,7 +75,6 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                         ->disabled(fn (Get $get) => ! $get('almacen_id'))
                         ->columnSpan(4),
 
-                    // 4. Selección de campos (CORREGIDO)
                     CheckboxList::make('campos_seleccionados')
                         ->label('Campos a visualizar')
                         ->options([
@@ -92,7 +88,7 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                         ->gridDirection('row')
                         ->required()
                         ->visible(fn (Get $get) => filled($get('medidor_id')))
-                        ->live() // <--- ¡ESTO ES VITAL! Sin esto el botón no reacciona
+                        ->live()
                         ->columnSpan(12),
                 ]),
 
@@ -115,7 +111,6 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                             );
                         }
                     })
-                    // Ahora esta condición se evaluará inmediatamente al hacer clic en un checkbox
                     ->disabled(fn (Get $get) => ! $get('medidor_id') || empty($get('campos_seleccionados'))),
             ])->alignEnd(),
         ];

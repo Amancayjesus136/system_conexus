@@ -50,10 +50,6 @@ class MedidorEacTotalChart extends ChartWidget
             ->where('cod_medidor', $medidorBase->cod_medidor)
             ->where('id_almacen', $medidorBase->id_almacen);
 
-        // --- CORRECCIÓN DEL ERROR DE FECHA ---
-        // Usamos Carbon::parse()->format('Y-m-d') para quitar cualquier hora "basura"
-        // que venga en la variable antes de concatenar 00:00:00 o 23:59:59
-
         if ($this->fechaInicio) {
             $inicioLimpio = Carbon::parse($this->fechaInicio)->format('Y-m-d');
             $query->where('created_at', '>=', $inicioLimpio . ' 00:00:00');
@@ -63,8 +59,6 @@ class MedidorEacTotalChart extends ChartWidget
             $finLimpio = Carbon::parse($this->fechaFin)->format('Y-m-d');
             $query->where('created_at', '<=', $finLimpio . ' 23:59:59');
         }
-
-        // ... El resto de tu lógica de agrupación sigue igual ...
 
         $selects = [];
         $groupBy = null;

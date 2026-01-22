@@ -47,9 +47,6 @@ class AnalisisMedidor extends Page implements HasForms
         ]);
     }
 
-    // --- BORRA LA FUNCIÓN getHeaderWidgets() COMPLETAMENTE ---
-    // protected function getHeaderWidgets(): array { ... }  <-- ELIMINAR ESTO
-
     protected function getFormSchema(): array
     {
         return [
@@ -81,7 +78,7 @@ class AnalisisMedidor extends Page implements HasForms
                                         $this->fecha_fin = $data['fecha_fin'];
                                         $this->periodo = $data['periodo'];
 
-                                        $this->chartKey++; // Esto actualizará AMBOS widgets en la vista
+                                        $this->chartKey++;
                                     }),
                             ])->alignCenter(),
                         ]),

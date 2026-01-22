@@ -1,6 +1,5 @@
 <x-filament::page class="space-y-8">
 
-    {{-- FILTROS --}}
     <div class="bg-white rounded-xl shadow-md border border-gray-200 p-6 dark:bg-gray-900 dark:border-gray-700">
         <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">
             Filtros de Estadísticas
@@ -11,14 +10,12 @@
         </div>
     </div>
 
-    {{-- DIVISOR --}}
     <div class="hidden sm:block">
         <div class="py-2">
             <div class="border-t border-gray-200 dark:border-gray-700"></div>
         </div>
     </div>
 
-    {{-- KPIs / STATS --}}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         @livewire(\App\Filament\Widgets\MedidorStats::class, [
             'medidorId' => $medidor->id_medidor,
@@ -26,7 +23,6 @@
         ], key('stats-' . $chartKey))
     </div>
 
-    {{-- GRÁFICA PRINCIPAL --}}
     <div class="bg-white rounded-xl shadow-md border border-gray-200 p-6 dark:bg-gray-900 dark:border-gray-700">
         <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">
             Gráfica de Tendencia
