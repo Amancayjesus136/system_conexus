@@ -8,6 +8,7 @@ use App\Models\Almacen;
 use App\Models\Medidor;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -23,73 +24,78 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
     use InteractsWithActions;
 
     protected string $view = 'filament.widgets.seleccion-medidores';
-
     protected int | string | array $columnSpan = 'full';
 
-    // Propiedades públicas para enlazar con el formulario
     public ?int $departamento_id = null;
     public ?int $almacen_id = null;
     public ?int $medidor_id = null;
+    public array $campos_seleccionados = [];
 
     protected function getFormSchema(): array
     {
         return [
-            // Rejilla principal de 12 columnas
             Grid::make(12)
                 ->schema([
-
-                    // Selector de Departamento (Col 4)
+                    // 1. Select Departamento
                     Select::make('departamento_id')
                         ->label('Departamento')
-                        ->options(
-                            Departamento::where('estado_departamento', 1)
-                                ->pluck('nombre_departamento', 'id_departamento')
-                        )
-                        ->live() // Reemplaza reactive() en versiones modernas para mejor respuesta
+                        ->options(Departamento::where('estado_departamento', 1)->pluck('nombre_departamento', 'id_departamento'))
+                        ->live()
                         ->afterStateUpdated(function (callable $set) {
                             $set('almacen_id', null);
                             $set('medidor_id', null);
+                            $set('campos_seleccionados', []);
                         })
                         ->required()
                         ->columnSpan(4),
 
-                    // Selector de Almacén (Col 4)
+                    // 2. Select Almacén
                     Select::make('almacen_id')
                         ->label('Almacén')
-                        ->options(fn (Get $get) =>
-                            $get('departamento_id')
-                                ? Almacen::where('id_departamento', $get('departamento_id'))
-                                    ->where('estado_almacen', 1)
-                                    ->pluck('nombre_almacen', 'id_almacen')
-                                : []
+                        ->options(fn (Get $get) => $get('departamento_id')
+                            ? Almacen::where('id_departamento', $get('departamento_id'))->pluck('nombre_almacen', 'id_almacen')
+                            : []
                         )
                         ->live()
-                        ->afterStateUpdated(fn (callable $set) =>
-                            $set('medidor_id', null)
-                        )
+                        ->afterStateUpdated(fn (callable $set) => $set('medidor_id', null))
                         ->required()
                         ->disabled(fn (Get $get) => ! $get('departamento_id'))
                         ->columnSpan(4),
 
-                    // Selector de Medidor (Col 4) - CORREGIDO PARA EVITAR DUPLICADOS
+                    // 3. Select Medidor
                     Select::make('medidor_id')
                         ->label('Medidor')
-                        ->options(fn (Get $get) =>
-                            $get('almacen_id')
-                                ? Medidor::where('id_almacen', $get('almacen_id'))
-                                    ->where('estado_medidor', 1)
-                                    ->get()
-                                    ->unique('cod_medidor') // Evita mostrar el mismo código varias veces
-                                    ->pluck('cod_medidor', 'id_medidor')
-                                : []
+                        ->options(fn (Get $get) => $get('almacen_id')
+                            ? Medidor::where('id_almacen', $get('almacen_id'))
+                                ->get()
+                                ->unique('cod_medidor')
+                                ->pluck('cod_medidor', 'id_medidor')
+                            : []
                         )
                         ->live()
+                        ->afterStateUpdated(fn (callable $set) => $set('campos_seleccionados', []))
                         ->required()
                         ->disabled(fn (Get $get) => ! $get('almacen_id'))
                         ->columnSpan(4),
+
+                    // 4. Selección de campos (CORREGIDO)
+                    CheckboxList::make('campos_seleccionados')
+                        ->label('Campos a visualizar')
+                        ->options([
+                            'eac_Total'   => 'EAC Total',
+                            'eac_Tar_1'   => 'EAC Tarifa 1',
+                            'eac_Tar_2'   => 'EAC Tarifa 2',
+                            'Max_demanda' => 'Máxima Demanda',
+                            'eric_Total'  => 'ERIC Total',
+                        ])
+                        ->columns(5)
+                        ->gridDirection('row')
+                        ->required()
+                        ->visible(fn (Get $get) => filled($get('medidor_id')))
+                        ->live() // <--- ¡ESTO ES VITAL! Sin esto el botón no reacciona
+                        ->columnSpan(12),
                 ]),
 
-            // Fila inferior para el botón
             Actions::make([
                 Action::make('generar')
                     ->label('Generar Gráfica')
@@ -98,17 +104,20 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                     ->color('primary')
                     ->action(function (Get $get) {
                         $medidorId = $get('medidor_id');
+                        $campos = $get('campos_seleccionados');
 
-                        if ($medidorId) {
+                        if ($medidorId && !empty($campos)) {
                             return redirect()->to(
                                 AnalisisMedidor::getUrl([
                                     'medidor' => $medidorId,
+                                    'campos'  => $campos,
                                 ])
                             );
                         }
                     })
-                    ->disabled(fn (Get $get) => ! $get('medidor_id')),
-            ])->alignEnd(), // Lo empuja a la derecha para un look más profesional
+                    // Ahora esta condición se evaluará inmediatamente al hacer clic en un checkbox
+                    ->disabled(fn (Get $get) => ! $get('medidor_id') || empty($get('campos_seleccionados'))),
+            ])->alignEnd(),
         ];
     }
 }
