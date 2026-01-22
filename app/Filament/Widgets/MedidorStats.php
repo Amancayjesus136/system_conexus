@@ -11,19 +11,19 @@ class MedidorStats extends BaseWidget
     public ?int $medidorId = null;
     public array $campos = [];
 
-    // Configuramos el polling dinámico a 5 segundos siempre
     protected function getPollingInterval(): ?string
     {
         return '5s';
     }
 
+    // Ahora dinámico
+    protected function getColumns(): int
+    {
+        return min(max(count($this->campos), 1), 5);
+    }
+
     protected function getStats(): array
     {
-        // ... (Tu lógica de stats está correcta, mantenla igual) ...
-        if (! $this->medidorId || empty($this->campos)) {
-            return [Stat::make('Estado', 'Seleccione un medidor')->color('gray')];
-        }
-
         $medidorBase = Medidor::find($this->medidorId);
         if (!$medidorBase) return [];
 
@@ -63,3 +63,4 @@ class MedidorStats extends BaseWidget
         return $stats;
     }
 }
+
