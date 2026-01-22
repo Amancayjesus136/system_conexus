@@ -9,10 +9,9 @@ use Carbon\Carbon;
 
 class MedidorEacTotalChart extends ChartWidget
 {
-    // ... config visual ...
     protected static bool $isDiscovered = false;
-    protected ?string $pollingInterval = null;
 
+    // Propiedades
     public ?int $medidorId = null;
     public ?string $fechaInicio = null;
     public ?string $fechaFin = null;
@@ -23,81 +22,83 @@ class MedidorEacTotalChart extends ChartWidget
         '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1',
     ];
 
+    protected function getPollingInterval(): ?string
+    {
+        if (in_array($this->periodo, ['1min', '5min'])) {
+            return '5s';
+        }
+        return null;
+    }
+
     public function getHeading(): string
     {
-        if (empty($this->campos)) return 'Seleccione parámetros para visualizar';
+        if (empty($this->campos)) return 'Seleccione parámetros';
         $nombres = array_map(fn($c) => ucfirst(str_replace('_', ' ', $c)), $this->campos);
-        return 'Histórico: ' . implode(', ', $nombres);
+        return 'Histórico (' . ucfirst($this->periodo) . '): ' . implode(', ', $nombres);
     }
 
     protected function getData(): array
     {
-        // 1. Validaciones
         if (! $this->medidorId || empty($this->campos)) {
             return ['labels' => [], 'datasets' => []];
         }
 
-        // Obtenemos el medidor base para saber su código Y su almacén
         $medidorBase = Medidor::find($this->medidorId);
         if (!$medidorBase) return ['labels' => [], 'datasets' => []];
 
         $query = Medidor::query()
             ->where('cod_medidor', $medidorBase->cod_medidor)
-            ->where('id_almacen', $medidorBase->id_almacen); // <--- CORRECCIÓN 1: Filtro por Almacén
+            ->where('id_almacen', $medidorBase->id_almacen);
 
-        // 2. Filtros de fecha
+        // --- CORRECCIÓN DEL ERROR DE FECHA ---
+        // Usamos Carbon::parse()->format('Y-m-d') para quitar cualquier hora "basura"
+        // que venga en la variable antes de concatenar 00:00:00 o 23:59:59
+
         if ($this->fechaInicio) {
-            $query->whereDate('created_at', '>=', $this->fechaInicio);
+            $inicioLimpio = Carbon::parse($this->fechaInicio)->format('Y-m-d');
+            $query->where('created_at', '>=', $inicioLimpio . ' 00:00:00');
         }
+
         if ($this->fechaFin) {
-            $query->whereDate('created_at', '<=', $this->fechaFin);
+            $finLimpio = Carbon::parse($this->fechaFin)->format('Y-m-d');
+            $query->where('created_at', '<=', $finLimpio . ' 23:59:59');
         }
+
+        // ... El resto de tu lógica de agrupación sigue igual ...
 
         $selects = [];
         $groupBy = null;
 
-        // 3. Definir agrupación (Eje X)
         if ($this->periodo === 'semanal') {
-            // Postgres: Año-Semana ISO
             $selects[] = DB::raw("to_char(created_at, 'IYYY-IW') as etiqueta");
             $groupBy = 'etiqueta';
         } elseif ($this->periodo === 'mensual') {
-            // Postgres: Año-Mes
             $selects[] = DB::raw("to_char(created_at, 'YYYY-MM') as etiqueta");
             $groupBy = 'etiqueta';
-        } else {
-            // --- CORRECCIÓN 2: Lógica DIARIA ---
-            // Antes traíamos la fecha completa con hora.
-            // Ahora truncamos al DÍA para poder agrupar.
+        } elseif ($this->periodo === 'diario') {
             $selects[] = DB::raw("to_char(created_at, 'YYYY-MM-DD') as etiqueta");
+            $groupBy = 'etiqueta';
+        } elseif ($this->periodo === '1min') {
+            $selects[] = DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:MI') as etiqueta");
+            $groupBy = 'etiqueta';
+        } elseif ($this->periodo === '5min') {
+            $selects[] = DB::raw("to_char(to_timestamp(floor((extract('epoch' from created_at) / 300 )) * 300), 'YYYY-MM-DD HH24:MI') as etiqueta");
             $groupBy = 'etiqueta';
         }
 
         $camposPermitidos = ['eac_Total', 'eac_Tar_1', 'eac_Tar_2', 'Max_demanda', 'eric_Total'];
 
-        // 4. Construir SELECT dinámico
         foreach ($this->campos as $campo) {
             if (!in_array($campo, $camposPermitidos)) continue;
-
             $alias = "val_{$campo}";
-
-            // --- CORRECCIÓN 3: Usar MAX() siempre ---
-            // Como son lecturas acumulativas, el "último" registro del día
-            // siempre tendrá el valor más alto (MAX).
-            // Usamos MAX() para Diario, Semanal y Mensual.
-
-            // Explicación: Si usas SUM() en medidores acumulativos, la gráfica se dispara erróneamente.
             $selects[] = DB::raw("MAX(NULLIF(\"$campo\"::text, '')::numeric) as \"$alias\"");
         }
 
         $query->select($selects);
-
-        // Siempre agrupamos (ahora incluso en diario)
-        $query->groupBy($groupBy);
+        if ($groupBy) $query->groupBy($groupBy);
 
         $resultados = $query->orderBy('etiqueta', 'asc')->get();
 
-        // 5. Construir los Datasets
         $datasets = [];
         $indexColor = 0;
 
@@ -113,8 +114,8 @@ class MedidorEacTotalChart extends ChartWidget
                 'borderColor' => $color,
                 'backgroundColor' => $color . '20',
                 'fill' => false,
-                'tension' => 0.1,
-                'pointRadius' => 3,
+                'tension' => 0.2,
+                'pointRadius' => count($resultados) > 50 ? 1 : 3,
                 'borderWidth' => 2,
             ];
             $indexColor++;
@@ -123,16 +124,18 @@ class MedidorEacTotalChart extends ChartWidget
         return [
             'datasets' => $datasets,
             'labels' => $resultados->map(function($reg) {
-                // Formateo visual de la etiqueta
-                if ($this->periodo === 'diario') {
-                    // La etiqueta viene como YYYY-MM-DD, la mostramos como dd/mm
-                    try {
-                        return Carbon::parse($reg->etiqueta)->format('d/m');
-                    } catch (\Exception $e) {
-                        return $reg->etiqueta;
+                try {
+                    $fecha = Carbon::parse($reg->etiqueta);
+                    if (in_array($this->periodo, ['1min', '5min'])) {
+                        if ($fecha->isToday()) return $fecha->format('H:i');
+                        return $fecha->format('d/m H:i');
+                    } elseif ($this->periodo === 'diario') {
+                        return $fecha->format('d/m');
                     }
+                    return $reg->etiqueta;
+                } catch (\Exception $e) {
+                    return $reg->etiqueta;
                 }
-                return $reg->etiqueta;
             })->toArray(),
         ];
     }
