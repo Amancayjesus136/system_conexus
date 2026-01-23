@@ -4,7 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\Medidor;
 use Filament\Pages\Page;
-use Filament\Forms\Components\DateTimePicker; // <--- CAMBIO IMPORTANTE
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -34,9 +34,9 @@ class AnalisisMedidor extends Page implements HasForms
         $this->medidor = $medidor;
         $this->campos_grafica = request()->query('campos', ['eac_Total']);
 
-        // AHORA GUARDAMOS LA HORA EXACTA (H:i:s)
-        $this->fecha_inicio = now()->format('Y-m-d H:i:s');
-        $this->fecha_fin = now()->format('Y-m-d H:i:s');
+        // REQUISITO: Iniciar desde las 00:00:00 del día actual
+        $this->fecha_inicio = now()->startOfDay()->format('Y-m-d H:i:s');
+        $this->fecha_fin = now()->endOfDay()->format('Y-m-d H:i:s');
 
         $this->form->fill([
             'fecha_inicio' => $this->fecha_inicio,
@@ -52,10 +52,9 @@ class AnalisisMedidor extends Page implements HasForms
                 ->schema([
                     Grid::make(4)
                         ->schema([
-                            // USAMOS DateTimePicker PARA QUE NO BORRE LA HORA
                             DateTimePicker::make('fecha_inicio')
                                 ->label('Inicio')
-                                ->seconds(false) // Opcional: ocultar segundos para limpiar UI
+                                ->seconds(false)
                                 ->native(false)
                                 ->required(),
 
@@ -69,6 +68,9 @@ class AnalisisMedidor extends Page implements HasForms
                                 ->options([
                                     '1min' => 'Tiempo Real (1 min)',
                                     '5min' => 'Tiempo Real (5 min)',
+                                    '1hora' => 'Cada 1 Hora',
+                                    '6horas' => 'Cada 6 Horas',
+                                    '12horas' => 'Cada 12 Horas',
                                     'diario' => 'Diario',
                                     'semanal' => 'Semanal',
                                     'mensual' => 'Mensual'

@@ -39,7 +39,6 @@ class MedidorController extends Controller
 
             foreach ($request->lecturas as $cod_medidor => $lectura) {
 
-                // SIEMPRE se registra un nuevo registro (histórico)
                 Medidor::create([
                     'cod_medidor'    => $cod_medidor,
                     'id_almacen'     => $almacen->id_almacen,
@@ -48,6 +47,20 @@ class MedidorController extends Controller
                     'eac_Total'      => $lectura['eac_Total'] ?? 0,
                     'Max_demanda'    => $lectura['Max_demanda'] ?? 0,
                     'eric_Total'     => $lectura['eric_Total'] ?? 0,
+                    'volt_l1_neutro' => $lectura['volt_l1_neutro'] ?? 0,
+                    'volt_l2_neutro' => $lectura['volt_l2_neutro'] ?? 0,
+                    'volt_l3_neutro' => $lectura['volt_l3_neutro'] ?? 0,
+                    'volt_l1l2'      => $lectura['volt_l1l2'] ?? 0,
+                    'volt_l2l3'      => $lectura['volt_l2l3'] ?? 0,
+                    'volt_l3l1'      => $lectura['volt_l3l1'] ?? 0,
+                    'corr_l1'        => $lectura['corr_l1'] ?? 0,
+                    'corr_l2'        => $lectura['corr_l2'] ?? 0,
+                    'corr_l3'        => $lectura['corr_l3'] ?? 0,
+                    'pont_act_l1'    => $lectura['pont_act_l1'] ?? 0,
+                    'pont_act_l2'    => $lectura['pont_act_l2'] ?? 0,
+                    'pont_act_l3'    => $lectura['pont_act_l3'] ?? 0,
+                    'pont_act_total' => $lectura['pont_act_total'] ?? 0,
+                    'ener_act_total' => $lectura['ener_act_total'] ?? 0,
                     'estado_medidor' => 1,
                     'user_created'   => $request->user_created,
                     'user_updated'   => $request->user_updated,

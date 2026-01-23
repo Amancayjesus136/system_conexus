@@ -83,6 +83,20 @@ class SeleccionMedidores extends Widget implements HasForms, HasActions
                             'eac_Tar_2'   => 'EAC Tarifa 2',
                             'Max_demanda' => 'Máxima Demanda',
                             'eric_Total'  => 'ERIC Total',
+                            'volt_l1_neutro'  => 'Volt l1 neutro',
+                            'volt_l2_neutro'  => 'Volt l2 neutro',
+                            'volt_l3_neutro'  => 'Volt l3 neutro',
+                            'volt_l1l2'  => 'Volt l1l2',
+                            'volt_l2l3'  => 'Volt l2l3',
+                            'volt_l3l1'  => 'Volt l3l1',
+                            'corr_l1'  => 'Corriente l1',
+                            'corr_l2'  => 'Corriente l2',
+                            'corr_l3'  => 'Corriente l3',
+                            'pont_act_l1'  => 'Pont act l1',
+                            'pont_act_l2'  => 'Pont act l2',
+                            'pont_act_l3'  => 'Pont act l3',
+                            'pont_act_total'  => 'Pont act total',
+                            'ener_act_total'  => 'Ener act total',
                         ])
                         ->columns(5)
                         ->gridDirection('row')
