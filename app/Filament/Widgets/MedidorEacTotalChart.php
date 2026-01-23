@@ -39,98 +39,125 @@ class MedidorEacTotalChart extends ChartWidget
 
     protected function getData(): array
     {
-        if (! $this->medidorId || empty($this->campos)) {
+        if (!$this->medidorId || empty($this->campos)) {
             return ['labels' => [], 'datasets' => []];
         }
 
         $medidorBase = Medidor::find($this->medidorId);
         if (!$medidorBase) return ['labels' => [], 'datasets' => []];
 
+        $camposPermitidos = ['eac_Total', 'eac_Tar_1', 'eac_Tar_2', 'Max_demanda', 'eric_Total'];
+
+        // ----------------------------- Configuración de tiempo -----------------------------
+        $startTime = Carbon::parse($this->fechaInicio)->startOfMinute();
+        $endTime = $this->periodo === '1min' || $this->periodo === '5min'
+            ? Carbon::now()->startOfMinute() // Hasta el momento actual para tiempo real
+            : Carbon::parse($this->fechaFin)->endOfDay();
+
+        $intervalMinutes = $this->periodo === '5min' ? 5 : 1;
+
+        // ----------------------------- Último registro antes del inicio -----------------------------
+        $lastBefore = Medidor::query()
+            ->where('cod_medidor', $medidorBase->cod_medidor)
+            ->where('id_almacen', $medidorBase->id_almacen)
+            ->where('created_at', '<', $startTime)
+            ->latest('created_at')
+            ->first();
+
+        $lastValues = [];
+        foreach ($this->campos as $campo) {
+            if (!in_array($campo, $camposPermitidos)) continue;
+            $lastValues["val_{$campo}"] = $lastBefore ? (float)$lastBefore->$campo : 0;
+        }
+
+        // ----------------------------- Traer registros dentro del rango -----------------------------
         $query = Medidor::query()
             ->where('cod_medidor', $medidorBase->cod_medidor)
-            ->where('id_almacen', $medidorBase->id_almacen);
-
-        if ($this->fechaInicio) {
-            $inicioLimpio = Carbon::parse($this->fechaInicio)->format('Y-m-d');
-            $query->where('created_at', '>=', $inicioLimpio . ' 00:00:00');
-        }
-
-        if ($this->fechaFin) {
-            $finLimpio = Carbon::parse($this->fechaFin)->format('Y-m-d');
-            $query->where('created_at', '<=', $finLimpio . ' 23:59:59');
-        }
-
-        $selects = [];
-        $groupBy = null;
-
-        if ($this->periodo === 'semanal') {
-            $selects[] = DB::raw("to_char(created_at, 'IYYY-IW') as etiqueta");
-            $groupBy = 'etiqueta';
-        } elseif ($this->periodo === 'mensual') {
-            $selects[] = DB::raw("to_char(created_at, 'YYYY-MM') as etiqueta");
-            $groupBy = 'etiqueta';
-        } elseif ($this->periodo === 'diario') {
-            $selects[] = DB::raw("to_char(created_at, 'YYYY-MM-DD') as etiqueta");
-            $groupBy = 'etiqueta';
-        } elseif ($this->periodo === '1min') {
-            $selects[] = DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:MI') as etiqueta");
-            $groupBy = 'etiqueta';
-        } elseif ($this->periodo === '5min') {
-            $selects[] = DB::raw("to_char(to_timestamp(floor((extract('epoch' from created_at) / 300 )) * 300), 'YYYY-MM-DD HH24:MI') as etiqueta");
-            $groupBy = 'etiqueta';
-        }
-
-        $camposPermitidos = ['eac_Total', 'eac_Tar_1', 'eac_Tar_2', 'Max_demanda', 'eric_Total'];
+            ->where('id_almacen', $medidorBase->id_almacen)
+            ->whereBetween('created_at', [$startTime, $endTime]);
 
         foreach ($this->campos as $campo) {
             if (!in_array($campo, $camposPermitidos)) continue;
-            $alias = "val_{$campo}";
-            $selects[] = DB::raw("MAX(NULLIF(\"$campo\"::text, '')::numeric) as \"$alias\"");
+            $query->addSelect(DB::raw("MAX(NULLIF(\"$campo\"::text, '')::numeric) as val_{$campo}"));
         }
 
-        $query->select($selects);
-        if ($groupBy) $query->groupBy($groupBy);
+        if ($this->periodo === '1min') {
+            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:MI') as etiqueta"))->groupBy('etiqueta');
+        } elseif ($this->periodo === '5min') {
+            $query->addSelect(DB::raw("to_char(to_timestamp(floor((extract('epoch' from created_at) / 300 )) * 300), 'YYYY-MM-DD HH24:MI') as etiqueta"))->groupBy('etiqueta');
+        } elseif ($this->periodo === 'diario') {
+            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM-DD') as etiqueta"))->groupBy('etiqueta');
+        } elseif ($this->periodo === 'semanal') {
+            $query->addSelect(DB::raw("to_char(created_at, 'IYYY-IW') as etiqueta"))->groupBy('etiqueta');
+        } elseif ($this->periodo === 'mensual') {
+            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM') as etiqueta"))->groupBy('etiqueta');
+        }
 
         $resultados = $query->orderBy('etiqueta', 'asc')->get();
 
-        $datasets = [];
-        $indexColor = 0;
-
+        // ----------------------------- Generar labels y datos forward-fill -----------------------------
+        $labels = [];
+        $dataByTime = [];
         foreach ($this->campos as $campo) {
             if (!in_array($campo, $camposPermitidos)) continue;
+            $dataByTime["val_{$campo}"] = [];
+        }
 
+        $resultIndex = 0;
+        while ($startTime <= $endTime) {
+            $labels[] = $startTime->format('Y-m-d H:i');
+
+            $row = $resultados[$resultIndex] ?? null;
+            $rowTime = $row ? Carbon::parse($row->etiqueta) : null;
+
+            if ($row && $rowTime <= $startTime) {
+                // Actualizamos con registro real
+                foreach ($this->campos as $campo) {
+                    if (!in_array($campo, $camposPermitidos)) continue;
+                    $alias = "val_{$campo}";
+                    $lastValues[$alias] = (float)$row->$alias;
+                    $dataByTime[$alias][] = $lastValues[$alias];
+                }
+                $resultIndex++;
+            } else {
+                // No hay registro: repetimos último valor conocido
+                foreach ($this->campos as $campo) {
+                    if (!in_array($campo, $camposPermitidos)) continue;
+                    $alias = "val_{$campo}";
+                    $dataByTime[$alias][] = $lastValues[$alias];
+                }
+            }
+
+            $startTime->addMinutes($intervalMinutes);
+        }
+
+        // ----------------------------- Construir datasets -----------------------------
+        $datasets = [];
+        $indexColor = 0;
+        foreach ($this->campos as $campo) {
+            if (!in_array($campo, $camposPermitidos)) continue;
             $alias = "val_{$campo}";
             $color = $this->colores[$indexColor % count($this->colores)];
 
             $datasets[] = [
                 'label' => ucfirst(str_replace('_', ' ', $campo)),
-                'data' => $resultados->pluck($alias)->map(fn ($val) => (float) $val)->toArray(),
+                'data' => $dataByTime[$alias],
                 'borderColor' => $color,
                 'backgroundColor' => $color . '20',
                 'fill' => false,
                 'tension' => 0.2,
-                'pointRadius' => count($resultados) > 50 ? 1 : 3,
+                'pointRadius' => count($dataByTime[$alias]) > 50 ? 1 : 3,
                 'borderWidth' => 2,
             ];
             $indexColor++;
         }
 
+        // ----------------------------- Labels finales -----------------------------
+        $formattedLabels = array_map(fn($l) => Carbon::parse($l)->format('H:i'), $labels);
+
         return [
+            'labels' => $formattedLabels,
             'datasets' => $datasets,
-            'labels' => $resultados->map(function($reg) {
-                try {
-                    $fecha = Carbon::parse($reg->etiqueta);
-                    if (in_array($this->periodo, ['1min', '5min'])) {
-                        if ($fecha->isToday()) return $fecha->format('H:i');
-                        return $fecha->format('d/m H:i');
-                    } elseif ($this->periodo === 'diario') {
-                        return $fecha->format('d/m');
-                    }
-                    return $reg->etiqueta;
-                } catch (\Exception $e) {
-                    return $reg->etiqueta;
-                }
-            })->toArray(),
         ];
     }
 
