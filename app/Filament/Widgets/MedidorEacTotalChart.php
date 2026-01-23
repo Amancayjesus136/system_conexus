@@ -4,7 +4,6 @@ namespace App\Filament\Widgets;
 
 use App\Models\Medidor;
 use Filament\Widgets\ChartWidget;
-use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class MedidorEacTotalChart extends ChartWidget
@@ -24,6 +23,7 @@ class MedidorEacTotalChart extends ChartWidget
 
     protected function getPollingInterval(): ?string
     {
+        // Solo refresca automáticamente en vistas de tiempo real
         if (in_array($this->periodo, ['1min', '5min'])) {
             return '5s';
         }
@@ -48,15 +48,22 @@ class MedidorEacTotalChart extends ChartWidget
 
         $camposPermitidos = ['eac_Total', 'eac_Tar_1', 'eac_Tar_2', 'Max_demanda', 'eric_Total'];
 
-        // ----------------------------- Configuración de tiempo -----------------------------
-        $startTime = Carbon::parse($this->fechaInicio)->startOfMinute();
-        $endTime = $this->periodo === '1min' || $this->periodo === '5min'
-            ? Carbon::now()->startOfMinute() // Hasta el momento actual para tiempo real
-            : Carbon::parse($this->fechaFin)->endOfDay();
+        // ----------------------------- 1. Configuración de Tiempos -----------------------------
+        // TIEMPO REAL (1min, 5min): Inicio = Fecha seleccionada. Fin = AHORA MISMO (para ir creando la gráfica en vivo)
+        // HISTÓRICO (Diario, etc): Inicio = Fecha inicio 00:00. Fin = Fecha fin 23:59.
 
-        $intervalMinutes = $this->periodo === '5min' ? 5 : 1;
+        $startTime = Carbon::parse($this->fechaInicio);
 
-        // ----------------------------- Último registro antes del inicio -----------------------------
+        if (in_array($this->periodo, ['1min', '5min'])) {
+            $startTime = $startTime->startOfMinute(); // Respetamos la hora que venga, solo quitamos segundos
+            $endTime = Carbon::now()->startOfMinute();
+        } else {
+            $startTime = $startTime->startOfDay();
+            $endTime = Carbon::parse($this->fechaFin)->endOfDay();
+        }
+
+        // ----------------------------- 2. Valor Inicial (Carry Forward) -----------------------------
+        // Buscamos el último valor conocido ANTES del inicio para que la gráfica no empiece en 0
         $lastBefore = Medidor::query()
             ->where('cod_medidor', $medidorBase->cod_medidor)
             ->where('id_almacen', $medidorBase->id_almacen)
@@ -67,71 +74,84 @@ class MedidorEacTotalChart extends ChartWidget
         $lastValues = [];
         foreach ($this->campos as $campo) {
             if (!in_array($campo, $camposPermitidos)) continue;
+            // Si existe un registro previo, usamos ese valor. Si no, 0.
             $lastValues["val_{$campo}"] = $lastBefore ? (float)$lastBefore->$campo : 0;
         }
 
-        // ----------------------------- Traer registros dentro del rango -----------------------------
-        $query = Medidor::query()
+        // ----------------------------- 3. Traer Datos CRUDOS (Sin Group By) -----------------------------
+        // Traemos todo lo que hay en el rango y ordenamos por fecha.
+        // La magia de los 5min/diario la haremos en el bucle PHP.
+        $registros = Medidor::query()
             ->where('cod_medidor', $medidorBase->cod_medidor)
             ->where('id_almacen', $medidorBase->id_almacen)
-            ->whereBetween('created_at', [$startTime, $endTime]);
+            ->whereBetween('created_at', [$startTime, $endTime])
+            ->orderBy('created_at', 'asc')
+            ->get();
 
-        foreach ($this->campos as $campo) {
-            if (!in_array($campo, $camposPermitidos)) continue;
-            $query->addSelect(DB::raw("MAX(NULLIF(\"$campo\"::text, '')::numeric) as val_{$campo}"));
-        }
-
-        if ($this->periodo === '1min') {
-            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:MI') as etiqueta"))->groupBy('etiqueta');
-        } elseif ($this->periodo === '5min') {
-            $query->addSelect(DB::raw("to_char(to_timestamp(floor((extract('epoch' from created_at) / 300 )) * 300), 'YYYY-MM-DD HH24:MI') as etiqueta"))->groupBy('etiqueta');
-        } elseif ($this->periodo === 'diario') {
-            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM-DD') as etiqueta"))->groupBy('etiqueta');
-        } elseif ($this->periodo === 'semanal') {
-            $query->addSelect(DB::raw("to_char(created_at, 'IYYY-IW') as etiqueta"))->groupBy('etiqueta');
-        } elseif ($this->periodo === 'mensual') {
-            $query->addSelect(DB::raw("to_char(created_at, 'YYYY-MM') as etiqueta"))->groupBy('etiqueta');
-        }
-
-        $resultados = $query->orderBy('etiqueta', 'asc')->get();
-
-        // ----------------------------- Generar labels y datos forward-fill -----------------------------
+        // ----------------------------- 4. Bucle Maestro (Lógica de Intervalos) -----------------------------
         $labels = [];
         $dataByTime = [];
         foreach ($this->campos as $campo) {
-            if (!in_array($campo, $camposPermitidos)) continue;
-            $dataByTime["val_{$campo}"] = [];
+            if (in_array($campo, $camposPermitidos)) $dataByTime["val_{$campo}"] = [];
         }
 
-        $resultIndex = 0;
-        while ($startTime <= $endTime) {
-            $labels[] = $startTime->format('Y-m-d H:i');
+        $current = $startTime->copy();
 
-            $row = $resultados[$resultIndex] ?? null;
-            $rowTime = $row ? Carbon::parse($row->etiqueta) : null;
+        // Definir cuánto sumamos en cada vuelta del bucle
+        $addFunction = match($this->periodo) {
+            '1min' => fn($c) => $c->addMinute(),
+            '5min' => fn($c) => $c->addMinutes(5),
+            'diario' => fn($c) => $c->addDay(),
+            'semanal' => fn($c) => $c->addWeek(),
+            'mensual' => fn($c) => $c->addMonth(),
+            default => fn($c) => $c->addDay(),
+        };
 
-            if ($row && $rowTime <= $startTime) {
-                // Actualizamos con registro real
+        // BUCLE: Desde Inicio hasta Fin
+        while ($current <= $endTime) {
+
+            // Definimos el final de ESTE bloque de tiempo (ej: de 3:00 a 3:05)
+            $nextStep = $current->copy();
+            $addFunction($nextStep);
+
+            // Buscamos si hay algún registro en este intervalo específico
+            // Ejemplo: Entre 3:02 y 3:07. Si hay uno a las 3:04, lo tomamos.
+            $registroEnIntervalo = $registros->filter(function($item) use ($current, $nextStep) {
+                $t = Carbon::parse($item->created_at);
+                return $t >= $current && $t < $nextStep;
+            })->last(); // Tomamos el último de ese intervalo (el más reciente)
+
+            // SI ENCONTRAMOS UN REGISTRO: Actualizamos el "Valor Actual"
+            if ($registroEnIntervalo) {
                 foreach ($this->campos as $campo) {
                     if (!in_array($campo, $camposPermitidos)) continue;
-                    $alias = "val_{$campo}";
-                    $lastValues[$alias] = (float)$row->$alias;
-                    $dataByTime[$alias][] = $lastValues[$alias];
-                }
-                $resultIndex++;
-            } else {
-                // No hay registro: repetimos último valor conocido
-                foreach ($this->campos as $campo) {
-                    if (!in_array($campo, $camposPermitidos)) continue;
-                    $alias = "val_{$campo}";
-                    $dataByTime[$alias][] = $lastValues[$alias];
+                    $lastValues["val_{$campo}"] = (float)$registroEnIntervalo->$campo;
                 }
             }
+            // SI NO HAY REGISTRO: $lastValues se mantiene igual (hace el efecto de línea recta)
 
-            $startTime->addMinutes($intervalMinutes);
+            // GUARDAMOS EL DATO EN LA GRÁFICA
+            foreach ($this->campos as $campo) {
+                if (!in_array($campo, $camposPermitidos)) continue;
+                $dataByTime["val_{$campo}"][] = $lastValues["val_{$campo}"];
+            }
+
+            // GENERAMOS LA ETIQUETA
+            if (in_array($this->periodo, ['1min', '5min'])) {
+                $labels[] = $current->format('H:i');
+            } elseif ($this->periodo === 'diario') {
+                $labels[] = $current->format('d/m');
+            } elseif ($this->periodo === 'mensual') {
+                $labels[] = $current->format('M Y');
+            } else {
+                $labels[] = $current->format('d/m H:i');
+            }
+
+            // AVANZAMOS EL RELOJ
+            $addFunction($current);
         }
 
-        // ----------------------------- Construir datasets -----------------------------
+        // ----------------------------- 5. Construir Datasets -----------------------------
         $datasets = [];
         $indexColor = 0;
         foreach ($this->campos as $campo) {
@@ -145,18 +165,16 @@ class MedidorEacTotalChart extends ChartWidget
                 'borderColor' => $color,
                 'backgroundColor' => $color . '20',
                 'fill' => false,
-                'tension' => 0.2,
-                'pointRadius' => count($dataByTime[$alias]) > 50 ? 1 : 3,
+                'pointRadius' => 0, // Sin puntos para que se vea fluido
+                'pointHoverRadius' => 4,
                 'borderWidth' => 2,
+                // 'stepped' => true, // Activa esto si quieres que la linea sea cuadrada (escalón)
             ];
             $indexColor++;
         }
 
-        // ----------------------------- Labels finales -----------------------------
-        $formattedLabels = array_map(fn($l) => Carbon::parse($l)->format('H:i'), $labels);
-
         return [
-            'labels' => $formattedLabels,
+            'labels' => $labels,
             'datasets' => $datasets,
         ];
     }

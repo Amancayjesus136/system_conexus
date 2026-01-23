@@ -4,7 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\Medidor;
 use Filament\Pages\Page;
-use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker; // <--- CAMBIO IMPORTANTE
 use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -12,9 +12,6 @@ use Filament\Schemas\Components\Actions;
 use Filament\Actions\Action;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
-// Importamos los widgets (aunque ya no los usaremos en getHeaderWidgets, se usan en la vista)
-use App\Filament\Widgets\MedidorEacTotalChart;
-use App\Filament\Widgets\MedidorStats;
 
 class AnalisisMedidor extends Page implements HasForms
 {
@@ -37,8 +34,9 @@ class AnalisisMedidor extends Page implements HasForms
         $this->medidor = $medidor;
         $this->campos_grafica = request()->query('campos', ['eac_Total']);
 
-        $this->fecha_inicio = now()->format('Y-m-d');
-        $this->fecha_fin = now()->format('Y-m-d');
+        // AHORA GUARDAMOS LA HORA EXACTA (H:i:s)
+        $this->fecha_inicio = now()->format('Y-m-d H:i:s');
+        $this->fecha_fin = now()->format('Y-m-d H:i:s');
 
         $this->form->fill([
             'fecha_inicio' => $this->fecha_inicio,
@@ -54,8 +52,19 @@ class AnalisisMedidor extends Page implements HasForms
                 ->schema([
                     Grid::make(4)
                         ->schema([
-                            DatePicker::make('fecha_inicio')->label('Inicio')->native(false)->required(),
-                            DatePicker::make('fecha_fin')->label('Fin')->native(false)->required(),
+                            // USAMOS DateTimePicker PARA QUE NO BORRE LA HORA
+                            DateTimePicker::make('fecha_inicio')
+                                ->label('Inicio')
+                                ->seconds(false) // Opcional: ocultar segundos para limpiar UI
+                                ->native(false)
+                                ->required(),
+
+                            DateTimePicker::make('fecha_fin')
+                                ->label('Fin')
+                                ->seconds(false)
+                                ->native(false)
+                                ->required(),
+
                             Select::make('periodo')
                                 ->options([
                                     '1min' => 'Tiempo Real (1 min)',
